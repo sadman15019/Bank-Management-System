@@ -5,6 +5,12 @@ using namespace std;
 
 
 // Helper function to convert a string to SHA-256 hash (hex format)
+
+//global counters to use user id, merchant id, transasction id, beneficiary id, admin id and accountId.
+int userLoggedInId = -1;
+int merchantLoggedInId= -1;
+int beneficiaryLoggedInId= -1;
+int adminLoggedInId= -1;
 string simpleHash(const string& input)
 {
     unsigned long hash = 5381;
@@ -47,6 +53,7 @@ enum class TransactionType
 };
 //Forward Declaration
 class User;
+class Merchant;
 
 class Person
 {
@@ -120,9 +127,11 @@ public:
 class Account
 {
 private:
+    int accountId;
     string accountNumber;
     double balance;
     User* user;
+    Merchant* merchant;
     double dailyTransaction;
     double monthlyTransaction;
 
@@ -329,6 +338,7 @@ public:
 class User : public Person
 {
 private:
+    int userId;
     string email;
     string hashedPassword;
     Nominee nominee;
@@ -348,6 +358,10 @@ public:
     }
 
     // Getters
+    int getUserId() const
+    {
+        return userId;
+    }
     string getEmail() const
     {
         return email;
@@ -369,6 +383,10 @@ public:
         return accountList;
     }
 
+    void setUserId(int userId)
+    {
+        this->userId=userId;
+    }
     void setEmail(const string& email)
     {
         this->email = email;
@@ -398,6 +416,7 @@ public:
 class Admin
 {
 private:
+    int adminId;
     string username;
     string email;
     string hashedPassword;
@@ -447,6 +466,7 @@ public:
 class Transaction
 {
 private:
+    int transactionId;
     string senderAccountNumber;
     string receiverAccountNumber;
     double amount;
@@ -463,6 +483,10 @@ public:
           amount(amount), status(status), failReason(failReason), timestamp(timestamp) {}
 
 
+    int getTransactionId() const
+    {
+        return transactionId;
+    }
     string getSenderAccountNumber() const
     {
         return senderAccountNumber;
@@ -489,6 +513,10 @@ public:
     }
 
 
+    void setTransactionId(int transactionId)
+    {
+        this->transactionId=transactionId;
+    }
     void setSenderAccountNumber(const string& sender)
     {
         senderAccountNumber = sender;
@@ -515,6 +543,69 @@ public:
     }
 };
 
+class Merchant
+{
+private:
+    int merchantId;
+    string name;
+    string tinId;
+    string address;
+    Account account;
+
+public:
+    // Default constructor
+    Merchant() {}
+
+    // Parameterized constructor
+    Merchant(int id, const string& name, const string& tin, const string& addr, const Account& acc)
+        : name(name), tinId(tin), address(addr), account(acc) {}
+
+    // Setters
+    void setMerchantId(int id)
+    {
+        merchantId = id;
+    }
+    void setName(const string& n)
+    {
+        name = n;
+    }
+    void setTinId(const string& tin)
+    {
+        tinId = tin;
+    }
+    void setAddress(const string& addr)
+    {
+        address = addr;
+    }
+    void setAccount(const Account& acc)
+    {
+        account = acc;
+    }
+
+    // Getters
+    int getMerchantId() const
+    {
+        return merchantId;
+    }
+    string getName() const
+    {
+        return name;
+    }
+    string getTinId() const
+    {
+        return tinId;
+    }
+    string getAddress() const
+    {
+        return address;
+    }
+    Account getAccount() const
+    {
+        return account;
+    }
+
+
+};
 
 class LimitDetails
 {
@@ -598,7 +689,12 @@ public:
     }
 };
 
-
+//global database for all entities
+vector<User> userList;
+vector<Admin>adminList;
+vector<Account>accountList;
+vector<Transaction>transactionList;
+vector<Merchant>merchantList;
 class UserService
 {
 
@@ -609,6 +705,8 @@ public:
                      const string& email, const string& rawPassword, Nominee& nominee)
     {
         User user(name, nid, dob, presentAddr, permanentAddr, email, rawPassword, nominee);
+        user.setUserId(userList.size()+1);
+        userList.push_back(user);
         cout << "User onboarded successfully: " << name << endl;
         return user;
     }
@@ -652,14 +750,20 @@ public:
     // Check balance of all accounts of a user
     double checkTotalBalance(User& user, Account& account)
     {
-        if(account.getUser() == &user)
+        try
         {
+            if(account.getUser() != &user)
+            {
+                throw runtime_error("The account is not associated with the current user");
+            }
             cout<<"Total balance is: "<<account.getBalance()<<" Tk."<<endl;
             return account.getBalance();
+
         }
-        else
+
+        catch(const exception& ex)
         {
-            throw runtime_error("The account is not associated with the current user");
+            cout<<ex.what()<<endl;
         }
     }
 
@@ -766,25 +870,182 @@ public:
 
 class AdminService
 {
-    // set various limits
+public:
+    void setDailyTransactionLimit(LimitDetails& limitDetails, double dailyTransactionLimit)
+    {
+        if(adminLoggedInId!=-1)
+        {
+            limitDetails.setDailyTransactionLimit(dailyTransactionLimit);
+        }
+        else
+        {
+            cout<<"Currently No Admin is logged in for setting limit"<<endl;
+        }
+    }
+    void setMonthlyTransactionLimit(LimitDetails& limitDetails, double monthlyTransactionLimit)
+    {
+        if(adminLoggedInId!=-1)
+        {
+            limitDetails.setMonthlyTransactionLimit(monthlyTransactionLimit);
+        }
+        else
+        {
+            cout<<"Currently No Admin is logged in for setting limit"<<endl;
+        }
+    }
+    void setMinBalanceRequirementForCustomer(LimitDetails& limitDetails, double minBalanceRequirementForCustomer)
+    {
+        if(adminLoggedInId!=-1)
+        {
+            limitDetails.setMinBalanceRequirementForCustomer(minBalanceRequirementForCustomer);
+        }
+        else
+        {
+            cout<<"Currently No Admin is logged in for setting limit"<<endl;
+        }
+    }
+    void setMinBalanceRequirementForMerchant(LimitDetails& limitDetails, double minBalanceRequirementForMerchant)
+    {
+        if(adminLoggedInId!=-1)
+        {
+            limitDetails.setMinBalanceRequirementForMerchant(minBalanceRequirementForMerchant);
+        }
+        else
+        {
+            cout<<"Currently No Admin is logged in for setting limit"<<endl;
+        }
+    }
+    void setMaxDailyTransactions(LimitDetails& limitDetails, double maxDailyTransactions)
+    {
+        if(adminLoggedInId!=-1)
+        {
+            limitDetails.setMaxDailyTransactions(maxDailyTransactions);
+        }
+        else
+        {
+            cout<<"Currently No Admin is logged in for setting limit"<<endl;
+        }
+    }
+    void setMaxMonthlyTransactions(LimitDetails& limitDetails, double maxMonthlyTransactions)
+    {
+        if(adminLoggedInId!=-1)
+        {
+            limitDetails.setMaxMonthlyTransactions(maxMonthlyTransactions);
+        }
+        else
+        {
+            cout<<"Currently No Admin is logged in for setting limit"<<endl;
+        }
+    }
+    vector<User> getUserDetails(string email,string nidNo)
+    {
+        vector<User>result;
+        if(!email.empty())
+        {
+            if(!nidNo.empty())
+            {
+                for(int i=0; i<userList.size(); i++)
+                {
+                    if(userList[i].getEmail()==email && userList[i].getNidNo()==nidNo)
+                    {
+                        result.push_back(userList[i]);
+                    }
+                }
+            }
+            else
+            {
+                for(int i=0; i<userList.size(); i++)
+                {
+                    if(userList[i].getEmail()==email)
+                    {
+                        result.push_back(userList[i]);
+                    }
+                }
+            }
+        }
+        else if(!nidNo.empty())
+        {
+            for(int i=0; i<userList.size(); i++)
+            {
+                if(userList[i].getNidNo()==nidNo)
+                {
+                    result.push_back(userList[i]);
+                }
+            }
+        }
+        else
+        {
+            result=userList;
+        }
+        return result;
+    }
+    vector<Account> getAccountDetails(string accountNo)
+    {
+        vector<Account>result;
+        if(!accountNo.empty())
+        {
+            for(int i=0; i<accountList.size(); i++)
+            {
+                if(accountList[i].getAccountNumber()==accountNo)
+                {
+                    result.push_back(accountList[i]);
+                }
+            }
+        }
+        else
+        {
+            result=accountList;
+        }
+        return result;
+    }
+    vector<Merchant> getMerchantDetails(string tinId)
+    {
+        vector<Merchant>result;
+        if(!tinId.empty())
+        {
+            for(int i=0; i<merchantList.size(); i++)
+            {
+                if(merchantList[i].getTinId()==tinId)
+                {
+                    result.push_back(merchantList[i]);
+                }
+            }
+        }
+        else
+        {
+            result=merchantList;
+        }
+        return result;
+    }
+    vector<Transaction> getTransactionDetails(int transactionId)
+    {
+        vector<Transaction>result;
+        if(transactionId!=-1)
+        {
+            for(int i=0; i<transactionList.size(); i++)
+            {
+                if(transactionList[i].getTransactionId()==transactionId)
+                {
+                    result.push_back(transactionList[i]);
+                }
+            }
+        }
+        else
+        {
+            result=transactionList;
+        }
+        return result;
+    }
 };
 
 /*Todo:
  Transactions -> merchant Payment, Atm withdrawal
  merchant onboarding, login, accept customer payment, refund customers.
- admin login, set variuos limits , view list of users with details, block/suspend/reactivate accounts, view a transaction details
+ admin login, view list of users with details, block/suspend/reactivate accounts, view a transaction details
  Use data structures instead of database for crud operartions
 */
+
 int main()
 {
-    /* For checking balance exception handling
-    UserService userService;
-    try
-    {
-        double balance = userService.checkTotalBalance(user, account);
-    }
-    catch (const runtime_error& e)
-    {
-        cout << "Error: " << e.what() << endl;
-    }*/
+
 }
