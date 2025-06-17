@@ -1,16 +1,19 @@
 #include <iostream>
+#include <chrono>
+#include <ctime>
 #include <bits/stdc++.h>
 
 using namespace std;
-
-
-// Helper function to convert a string to SHA-256 hash (hex format)
 
 //global counters to use user id, merchant id, transasction id, beneficiary id, admin id and accountId.
 int userLoggedInId = -1;
 int merchantLoggedInId= -1;
 int beneficiaryLoggedInId= -1;
 int adminLoggedInId= -1;
+
+//some constants
+
+
 string simpleHash(const string& input)
 {
     unsigned long hash = 5381;
@@ -23,6 +26,15 @@ string simpleHash(const string& input)
     return to_string(hash);
 }
 
+string getCurrentTime()
+{
+    std::time_t t = std::time(nullptr);            // get current time
+    std::tm* now = std::localtime(&t);             // convert to local time
+    char buffer[100];
+
+    std::strftime(buffer, sizeof(buffer), "%Y %d %B %H:%M:%S", now);
+    return std::string(buffer);
+}
 void mockExternalApiCall()
 {
     cout<<"Successfully called external API"<<endl;
@@ -208,6 +220,16 @@ public:
     User* getUser() const
     {
         return user;
+    }
+
+    void setMerchant(Merchant* merchant)
+    {
+        this->merchant= merchant;
+    }
+
+    Merchant* getMerchant()
+    {
+        return merchant;
     }
 
     // Basic operations
@@ -470,17 +492,15 @@ private:
     string senderAccountNumber;
     string receiverAccountNumber;
     double amount;
-    string status;        // "SUCCESS" or "FAILED"
-    string failReason;    // Reason in case of failure
-    time_t timestamp;     // Epoch time of transaction
+    string timestamp;     // Epoch time of transaction
+    TransactionType transactionType;
 
 public:
     Transaction() {}
 
-    Transaction(const string& sender, const string& receiver, double amount,
-                const string& status, const string& failReason, time_t timestamp)
+    Transaction(const string& sender, const string& receiver, double amount, string timestamp, TransactionType transactionType)
         : senderAccountNumber(sender), receiverAccountNumber(receiver),
-          amount(amount), status(status), failReason(failReason), timestamp(timestamp) {}
+          amount(amount), timestamp(timestamp), transactionType(transactionType) {}
 
 
     int getTransactionId() const
@@ -499,17 +519,13 @@ public:
     {
         return amount;
     }
-    string getStatus() const
-    {
-        return status;
-    }
-    string getFailReason() const
-    {
-        return failReason;
-    }
-    time_t getTimestamp() const
+    string getTimestamp() const
     {
         return timestamp;
+    }
+    TransactionType getTransactionType ()const
+    {
+        return transactionType;
     }
 
 
@@ -529,17 +545,13 @@ public:
     {
         amount = amt;
     }
-    void setStatus(const string& stat)
-    {
-        status = stat;
-    }
-    void setFailReason(const string& reason)
-    {
-        failReason = reason;
-    }
-    void setTimestamp(time_t ts)
+    void setTimestamp(string ts)
     {
         timestamp = ts;
+    }
+    void setTransactionType(TransactionType transactionType)
+    {
+        this->transactionType=transactionType;
     }
 };
 
@@ -617,6 +629,7 @@ private:
     double minBalanceRequirementForMerchant;
     int maxDailyTransactions;
     int maxMonthlyTransactions;
+    double atmWithDrawalLimit;
 
 public:
     LimitDetails() {}
@@ -661,6 +674,10 @@ public:
     {
         return maxMonthlyTransactions;
     }
+    double getAtmWithDrawalLimit() const
+    {
+        return atmWithDrawalLimit;
+    }
 
 
     void setDailyTransactionLimit(double dailyTransactionLimit)
@@ -687,6 +704,10 @@ public:
     {
         this->maxMonthlyTransactions = maxMonthlyTransactions;
     }
+    void setAtmWithDrawalLimit(double atmWithDrawalLimit)
+    {
+        this->atmWithDrawalLimit=atmWithDrawalLimit;
+    }
 };
 
 //global database for all entities
@@ -695,11 +716,61 @@ vector<Admin>adminList;
 vector<Account>accountList;
 vector<Transaction>transactionList;
 vector<Merchant>merchantList;
+
+class TransactionService
+{
+    LimitDetails limitDetails;
+public:
+    void saveTransaction(string senderAccountNumber,string receiverAccountNumber,double amount, TransactionType transactionType)
+    {
+        Transaction transaction;
+        transaction.setTransactionId(transactionList.size()+1);
+        transaction.setSenderAccountNumber(senderAccountNumber);
+        transaction.setReceiverAccountNumber(receiverAccountNumber);
+        transaction.setAmount(amount);
+        transaction.setTimestamp(getCurrentTime());
+        transaction.setTransactionType(transactionType);
+        transactionList.push_back(transaction);
+    }
+
+    void makePayment(Account& payerAccount, Account& payeeAccount, double amount)
+    {
+
+        if(payerAccount.getBalance()<amount)
+        {
+            cout<<"Insufficient Balance"<<endl;
+        }
+        else
+        {
+            payerAccount.withdraw(amount);
+            payeeAccount.deposit(amount);
+            cout<<"Payment Successful"<<endl;
+            saveTransaction(payerAccount.getAccountNumber(),payeeAccount.getAccountNumber(),amount,TransactionType::PAYMENT);
+        }
+    }
+
+
+    void atmWithdrawal(Account& account, Account& systemAccount, double amount)
+    {
+        if(amount>limitDetails.getAtmWithDrawalLimit())
+        {
+            cout<<"Amount Exceeds limit for Atm Withdrawal. Your Atm Withdrawal Limit is : "<<limitDetails.getAtmWithDrawalLimit()<<"Tk."<<endl;
+        }
+        else
+        {
+            account.withdraw(amount);
+            systemAccount.deposit(amount);
+            cout<<"Atm Withdrawal Successful"<<endl;
+            saveTransaction(account.getAccountNumber(),systemAccount.getAccountNumber(),amount,TransactionType::ATM_WITHDRAWAL);
+        }
+    }
+};
+
 class UserService
 {
-
 public:
     // Onboarding a user with nominee
+    TransactionService transactionService;
     User onboardUser(const string& name, const string& nid, const string& dob,
                      const string& presentAddr, const string& permanentAddr,
                      const string& email, const string& rawPassword, Nominee& nominee)
@@ -804,6 +875,9 @@ public:
                 throw runtime_error("Receiver exceeds monthly transaction limit");
 
             cout << "Local transfer of " << amount << " Tk successful." << endl;
+
+            transactionService.saveTransaction(senderAccount.getAccountNumber(),receiverAccount.getAccountNumber(),amount,TransactionType::C2C_LOCAL);
+
             return true;
         }
         catch (const exception& ex)
@@ -853,6 +927,9 @@ public:
             mockExternalApiCall();
 
             cout << "Gloabal transfer of " << amount << " Tk successful." << endl;
+
+            transactionService.saveTransaction(senderAccount.getAccountNumber(),beneficiary.getAccountNo(),amount,TransactionType::C2C_GLOBAL);
+
             return true;
         }
         catch (const exception& ex)
@@ -864,8 +941,6 @@ public:
             return false;
         }
     }
-
-
 };
 
 class AdminService
@@ -1040,12 +1115,13 @@ public:
 
 /*Todo:
  Transactions -> merchant Payment, Atm withdrawal
- merchant onboarding, login, accept customer payment, refund customers.
- admin login, view list of users with details, block/suspend/reactivate accounts, view a transaction details
- Use data structures instead of database for crud operartions
 */
 
 int main()
 {
+    //on program startup, create System Account
+    Account systemAccount;
+    systemAccount.setAccountNumber("123456");
+    systemAccount.setBalance(0.0);
 
 }
